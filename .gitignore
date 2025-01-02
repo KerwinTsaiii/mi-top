@@ -1,2 +1,4 @@
 mi-top
 go.sum
+build/*
+build
