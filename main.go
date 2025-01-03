@@ -241,16 +241,32 @@ func main() {
 	// Set selected row color
 	processList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
 
-	// Layout
+	// Calculate grid layout
 	grid := ui.NewGrid()
 	grid.SetRect(0, 0, termWidth, termHeight)
 
-	// Adjust grid layout to use more space
+	// Calculate rows and columns needed for GPU charts
+	maxChartsPerRow := 2
+	numRows := (numGPUs + maxChartsPerRow - 1) / maxChartsPerRow // Ceiling division
+	chartHeight := float64(0.8) / float64(numRows)               // Adjust height based on number of rows
+
+	// Create grid items with GPU charts arranged in a grid
 	gridItems := make([]interface{}, 0)
-	chartHeight := float64(0.8) / float64(numGPUs)
-	for i := 0; i < numGPUs; i++ {
-		gridItems = append(gridItems, ui.NewRow(chartHeight, ui.NewCol(1.0, gpuCharts[i])))
+	for row := 0; row < numRows; row++ {
+		// Create columns for this row
+		rowCols := make([]interface{}, 0)
+		for col := 0; col < maxChartsPerRow; col++ {
+			gpuIndex := row*maxChartsPerRow + col
+			if gpuIndex < numGPUs {
+				// Calculate column width (1.0/maxChartsPerRow for equal distribution)
+				rowCols = append(rowCols, ui.NewCol(1.0/float64(maxChartsPerRow), gpuCharts[gpuIndex]))
+			}
+		}
+		// Add row to grid items
+		gridItems = append(gridItems, ui.NewRow(chartHeight, rowCols...))
 	}
+
+	// Add process list at the bottom
 	gridItems = append(gridItems, ui.NewRow(0.2, ui.NewCol(1.0, processList)))
 	grid.Set(gridItems...)
 
