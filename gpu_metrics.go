@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/csv"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -82,57 +84,59 @@ func getGPUMetrics() ([]GPUMetrics, error) {
 }
 
 func getProcessInfo() ([]ProcessInfo, error) {
-	cmd := exec.Command("amd-smi", "process")
+	cmd := exec.Command("amd-smi", "process", "--csv")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute amd-smi: %v", err)
+	}
+
+	// Create CSV reader
+	reader := csv.NewReader(strings.NewReader(string(output)))
+
+	// Read header line
+	_, err = reader.Read()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CSV header: %v", err)
 	}
 
 	var processes []ProcessInfo
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-
-	currentGPU := -1
-	var currentProcess ProcessInfo
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "GPU:") {
-			fields := strings.Fields(line)
-			currentGPU, _ = strconv.Atoi(fields[1])
-		} else if strings.Contains(line, "NAME:") {
-			if currentProcess.Name != "" {
-				processes = append(processes, currentProcess)
-			}
-			currentProcess = ProcessInfo{GPU: currentGPU}
-			currentProcess.Name = strings.TrimSpace(strings.Split(line, ":")[1])
-		} else if strings.Contains(line, "PID:") {
-			currentProcess.PID = strings.TrimSpace(strings.Split(line, ":")[1])
-		} else if strings.Contains(line, "GTT_MEM:") {
-			memStr := strings.TrimSpace(strings.Split(line, ":")[1])
-			currentProcess.GTTMem, _ = strconv.ParseFloat(strings.TrimSuffix(memStr, " MB"), 64)
-		} else if strings.Contains(line, "CPU_MEM:") {
-			memStr := strings.TrimSpace(strings.Split(line, ":")[1])
-			currentProcess.CPUMem, _ = strconv.ParseFloat(strings.TrimSuffix(memStr, " MB"), 64)
-		} else if strings.Contains(line, "VRAM_MEM:") {
-			memStr := strings.TrimSpace(strings.Split(line, ":")[1])
-			currentProcess.VRAMMem, _ = strconv.ParseFloat(strings.TrimSuffix(memStr, " MB"), 64)
-		} else if strings.Contains(line, "MEM_USAGE:") {
-			memStr := strings.TrimSpace(strings.Split(line, ":")[1])
-			currentProcess.TotalMem, _ = strconv.ParseFloat(strings.TrimSuffix(memStr, " MB"), 64)
-		} else if strings.Contains(line, "GFX:") {
-			gfxStr := strings.TrimSpace(strings.Split(line, ":")[1])
-			gfxStr = strings.TrimSuffix(gfxStr, " ns")
-			if gfxTime, err := strconv.ParseInt(gfxStr, 10, 64); err == nil && gfxTime > 0 {
-				currentProcess.GFXUsage = fmt.Sprintf("%.1f%%", float64(gfxTime)/1e9*100)
-			} else {
-				currentProcess.GFXUsage = "0.0%"
-			}
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
 		}
-	}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CSV record: %v", err)
+		}
 
-	// Add the last process
-	if currentProcess.Name != "" {
-		processes = append(processes, currentProcess)
+		// Skip if no process detected
+		if strings.Contains(record[1], "No running processes detected") {
+			continue
+		}
+
+		// Parse GPU ID
+		gpuID, err := strconv.Atoi(record[0])
+		if err != nil {
+			continue
+		}
+
+		// Convert memory values from bytes to MB
+		vramMem, _ := strconv.ParseFloat(record[2], 64)
+		cpuMem, _ := strconv.ParseFloat(record[5], 64)
+		gttMem, _ := strconv.ParseFloat(record[7], 64)
+		totalMem, _ := strconv.ParseFloat(record[8], 64)
+
+		process := ProcessInfo{
+			GPU:      gpuID,
+			Name:     record[3],
+			PID:      record[4],
+			GFXUsage: record[6] + "%",
+			VRAMMem:  vramMem / 1024 / 1024, // Convert bytes to MB
+			CPUMem:   cpuMem / 1024 / 1024,
+			GTTMem:   gttMem / 1024 / 1024,
+			TotalMem: totalMem / 1024 / 1024,
+		}
+		processes = append(processes, process)
 	}
 
 	return processes, nil
