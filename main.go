@@ -33,11 +33,9 @@ type ProcessListItem struct {
 
 func updateProcessList(processes []ProcessInfo) {
 	items := make([]ProcessListItem, 0)
-
 	// Find the longest name length for alignment
 	maxNameLen := 20 // Default minimum width
 	maxPIDLen := 8   // PID width
-
 	for _, proc := range processes {
 		if len(proc.Name) > maxNameLen {
 			maxNameLen = len(proc.Name)
@@ -60,14 +58,12 @@ func updateProcessList(processes []ProcessInfo) {
 		}
 		items = append(items, item)
 	}
-
 	// Update header format
 	header := fmt.Sprintf("[GPU] %-*s │ %-*s │ %-58s │ %-10s",
 		maxNameLen, "NAME",
 		maxPIDLen+5, "PID",
 		"MEMORY USAGE",
 		"GPU USAGE")
-
 	// Sort based on selected column
 	sort.Slice(items, func(i, j int) bool {
 		var result bool
@@ -86,17 +82,14 @@ func updateProcessList(processes []ProcessInfo) {
 		}
 		return result
 	})
-
 	// Update list display
 	processList.Rows = make([]string, len(items)+2) // +2 for header and separator
 	processList.Rows[0] = header
 	processList.Rows[1] = strings.Repeat("─", len(header))
-
 	for i, item := range items {
 		processList.Rows[i+2] = item.display
 	}
 }
-
 func handleProcessListEvents(e ui.Event) {
 	switch e.ID {
 	case "<Up>":
@@ -140,7 +133,6 @@ func newGPUHistory(maxLen int) *GPUHistory {
 		index:  0,
 	}
 }
-
 func (gh *GPUHistory) add(value float64) {
 	gh.values[gh.index] = value
 	gh.index = (gh.index + 1) % gh.maxLen
@@ -169,7 +161,6 @@ func calculateDataPoints(width int) int {
 	}
 	return usableWidth
 }
-
 func main() {
 	// Check for version flag
 	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
@@ -178,37 +169,30 @@ func main() {
 		fmt.Printf("Build time: %s\n", BuildTime)
 		return
 	}
-
 	if err := ui.Init(); err != nil {
 		log.Fatalf("failed to initialize termui: %v", err)
 	}
 	defer ui.Close()
-
 	// Get terminal dimensions early
 	termWidth, termHeight := ui.TerminalDimensions()
 	dataPoints := calculateDataPoints(termWidth)
-
 	// Get number of GPUs
 	metrics, err := getGPUMetrics()
 	if err != nil {
 		log.Fatalf("failed to get GPU metrics: %v", err)
 	}
 	numGPUs := len(metrics)
-
 	// Create GPU charts
 	gpuCharts := make([]*widgets.SparklineGroup, numGPUs)
 	gpuHistories := make([]*GPUHistory, numGPUs)
-
 	for i := 0; i < numGPUs; i++ {
 		sparkline := widgets.NewSparkline()
 		sparkline.LineColor = ui.ColorGreen
 		sparkline.TitleStyle = ui.NewStyle(ui.ColorWhite)
 		sparkline.MaxVal = 100
-
 		// Use calculated number of data points
 		initialData := make([]float64, dataPoints)
 		sparkline.Data = initialData
-
 		spGroup := widgets.NewSparklineGroup()
 		spGroup.Title = fmt.Sprintf("GPU %d", i)
 		spGroup.Sparklines = []*widgets.Sparkline{sparkline}
@@ -217,10 +201,8 @@ func main() {
 		spGroup.BorderRight = true
 		spGroup.BorderTop = true
 		spGroup.BorderBottom = true
-
 		// Set minimum height
 		spGroup.SetRect(0, 0, termWidth, 10)
-
 		gpuCharts[i] = spGroup
 		gpuHistories[i] = newGPUHistory(dataPoints)
 		// Initialize history data to 0
@@ -228,7 +210,6 @@ func main() {
 			gpuHistories[i].add(0)
 		}
 	}
-
 	// Initialize process list
 	processList = widgets.NewList()
 	processList.Title = fmt.Sprintf("Process List (Sort: %s%s)",
@@ -240,41 +221,20 @@ func main() {
 	processList.BorderStyle = ui.NewStyle(ui.ColorWhite)
 	// Set selected row color
 	processList.SelectedRowStyle = ui.NewStyle(ui.ColorBlack, ui.ColorGreen)
-
-	// Calculate grid layout
+	// Layout
 	grid := ui.NewGrid()
 	grid.SetRect(0, 0, termWidth, termHeight)
-
-	// Calculate rows and columns needed for GPU charts
-	maxChartsPerRow := 2
-	numRows := (numGPUs + maxChartsPerRow - 1) / maxChartsPerRow // Ceiling division
-	chartHeight := float64(0.8) / float64(numRows)               // Adjust height based on number of rows
-
-	// Create grid items with GPU charts arranged in a grid
+	// Adjust grid layout to use more space
 	gridItems := make([]interface{}, 0)
-	for row := 0; row < numRows; row++ {
-		// Create columns for this row
-		rowCols := make([]interface{}, 0)
-		for col := 0; col < maxChartsPerRow; col++ {
-			gpuIndex := row*maxChartsPerRow + col
-			if gpuIndex < numGPUs {
-				// Calculate column width (1.0/maxChartsPerRow for equal distribution)
-				rowCols = append(rowCols, ui.NewCol(1.0/float64(maxChartsPerRow), gpuCharts[gpuIndex]))
-			}
-		}
-		// Add row to grid items
-		gridItems = append(gridItems, ui.NewRow(chartHeight, rowCols...))
+	chartHeight := float64(0.8) / float64(numGPUs)
+	for i := 0; i < numGPUs; i++ {
+		gridItems = append(gridItems, ui.NewRow(chartHeight, ui.NewCol(1.0, gpuCharts[i])))
 	}
-
-	// Add process list at the bottom
 	gridItems = append(gridItems, ui.NewRow(0.2, ui.NewCol(1.0, processList)))
 	grid.Set(gridItems...)
-
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-
 	uiEvents := ui.PollEvents()
-
 	for {
 		select {
 		case e := <-uiEvents:
@@ -284,7 +244,6 @@ func main() {
 			case "<Resize>":
 				payload := e.Payload.(ui.Resize)
 				newDataPoints := calculateDataPoints(payload.Width)
-
 				// Update number of data points for each chart
 				for i := 0; i < numGPUs; i++ {
 					newHistory := newGPUHistory(newDataPoints)
@@ -294,18 +253,15 @@ func main() {
 						newHistory.add(v)
 					}
 					gpuHistories[i] = newHistory
-
 					gpuCharts[i].SetRect(0, 0, payload.Width, 10)
 					gpuCharts[i].Sparklines[0].Data = make([]float64, newDataPoints)
 				}
-
 				grid.SetRect(0, 0, payload.Width, payload.Height)
 				ui.Clear()
 				ui.Render(grid)
 			default:
 				handleProcessListEvents(e)
 			}
-
 		case <-ticker.C:
 			// Update metrics
 			metrics, err := getGPUMetrics()
@@ -314,26 +270,21 @@ func main() {
 					if i >= len(gpuCharts) {
 						break
 					}
-
 					// Add new utilization data
 					gpuHistories[i].add(metric.GFXUtil)
-
 					// Update chart data using getData() to get correct order
 					gpuCharts[i].Sparklines[0].Data = gpuHistories[i].getData()
 					gpuCharts[i].Sparklines[0].MaxVal = 100
-
 					// Update title, add current utilization
 					gpuCharts[i].Title = fmt.Sprintf("GPU %d - %0.1fW, %0.1f°C, %0.1f%% Util, VRAM: %0.0f/%0.0f MB",
 						metric.ID, metric.Power, metric.GPUTemp, metric.GFXUtil, metric.VRAMUsed, metric.VRAMTotal)
 				}
 			}
-
 			// Update process list
 			processes, err := getProcessInfo()
 			if err == nil {
 				updateProcessList(processes)
 			}
-
 			ui.Render(grid)
 		}
 	}
